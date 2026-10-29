@@ -5,8 +5,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The Set Focus macro (EUI_Focus, an account macro) is written from the
 --  Kick Tracker's Focus Marker, so changing the marker rewrites the macro and
---  nobody edits a marker number by hand. Its body: /focus on the mouseover
---  (else the target), then, while a marker is set and Auto Mark Focus is on,
+--  nobody edits a marker number by hand. Its body: /focus on a hostile
+--  mouseover (else the target), then, while a marker is set,
 --  /tm [@focus] ~N (the ~ declines to overwrite a marker a group member
 --  already placed), and with Ping Focus on, /ping [@focus] 3 (the numeric
 --  alias, On My Way: the word forms only match on English clients). The
@@ -31,7 +31,7 @@ local PlainString = EllesmereUI.PlainString
 
 local MACRO_NAME = "EUI_Focus"
 local MACRO_ICON = 236203
-local FOCUS_LINE = "/focus [@mouseover,exists,nodead] []"
+local FOCUS_LINE = "/focus [@mouseover,harm,nodead] []"
 -- A free marker is looked for from Skull down, the order groups mark in.
 local FREE_ORDER = { 8, 7, 6, 5, 4, 3, 2, 1 }
 local PARTY_UNITS = { "party1", "party2", "party3", "party4" }
@@ -49,17 +49,15 @@ local function ValidMarker(v)
     if v and v >= 1 and v <= 8 and v == math.floor(v) then return v end
     return nil
 end
-ns.FM_ValidMarker = ValidMarker
 
 local function Body(cfg)
     local lines = { FOCUS_LINE }
     local mark = cfg and ValidMarker(cfg.focusMarker)
-    local autoMark = mark and cfg.focusMacroMark == true
     local ping = cfg and cfg.focusMacroPing == true
-    if autoMark or ping then
+    if mark or ping then
         -- Every trailing line acts on the focus: none acquired, none runs.
         lines[#lines + 1] = "/stopmacro [@focus,noexists]"
-        if autoMark then lines[#lines + 1] = "/tm [@focus] ~" .. mark end
+        if mark then lines[#lines + 1] = "/tm [@focus] ~" .. mark end
         if ping then lines[#lines + 1] = "/ping [@focus] 3" end
     end
     return table.concat(lines, "\n")
@@ -101,7 +99,8 @@ end
 -- The Set Focus toggles used to live on the Macro Factory's Set Focus button
 -- (EllesmereUIDB.macroFactory.EUI_Focus, account-wide). Moved once into the
 -- profile in use: Auto Mark carries its marker over while no Focus Marker is
--- set, Announce Focus is gone (Focus Announce tells the party instead).
+-- set (the macro marks whenever one is), Announce Focus is gone (Focus
+-- Announce tells the party instead).
 local migrated = false
 local function Migrate(cfg)
     if migrated then return end
@@ -110,11 +109,8 @@ local function Migrate(cfg)
     local old = type(mf) == "table" and mf[MACRO_NAME]
     if type(old) ~= "table" then return end
     mf[MACRO_NAME] = nil
-    if old.autoMark then
-        cfg.focusMacroMark = true
-        if not ValidMarker(cfg.focusMarker) then
-            cfg.focusMarker = ValidMarker(old.markIcon) or 8
-        end
+    if old.autoMark and not ValidMarker(cfg.focusMarker) then
+        cfg.focusMarker = ValidMarker(old.markIcon) or 8
     end
     if old.ping then cfg.focusMacroPing = true end
 end
