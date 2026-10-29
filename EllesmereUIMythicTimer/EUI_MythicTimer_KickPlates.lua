@@ -3377,9 +3377,7 @@ local function MythicDungeon()
         return false
     end
     local _, iType, diffID = GetInstanceInfo()
-    diffID = tonumber(diffID)
-    -- TEMP (testing): follower dungeons (205) announce too. Revert before a PR.
-    return iType == "party" and (diffID == 23 or diffID == 205)
+    return iType == "party" and tonumber(diffID) == 23
 end
 
 -- The default line with {marker} where the raid marker goes: what Edit
@@ -3408,10 +3406,7 @@ local function Announce(marker)
     if not IsInGroup() or IsInRaid() then return end
     local cfg = Cfg()
     if not (cfg and cfg.focusAnnounce == false) then
-        -- TEMP (testing): a follower dungeon's group may be an instance
-        -- group, where PARTY is refused. Revert before a PR.
-        local channel = IsInGroup(LE_PARTY_CATEGORY_HOME) and "PARTY" or "INSTANCE_CHAT"
-        C_ChatInfo.SendChatMessage(AnnounceLine(marker), channel)
+        C_ChatInfo.SendChatMessage(AnnounceLine(marker), "PARTY")
     end
     -- The same marker on the addon channel for the marker defaults (Rails):
     -- before the key starts, as here, it still goes through.
