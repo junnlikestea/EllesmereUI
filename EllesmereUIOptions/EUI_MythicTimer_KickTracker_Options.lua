@@ -45,6 +45,11 @@ end
 
 local function On() return Get("enabled", false) == true end
 local function Off() return not On() end
+local function NoMarker()
+    return not (ns.FM_ValidMarker and ns.FM_ValidMarker(Get("focusMarker", 0)))
+end
+local function NoClash() return not (ns.FM_Clash and ns.FM_Clash()) end
+local function AnnounceOff() return Off() or Get("focusAnnounce", true) == false end
 local function PlatesOn() return On() and Get("showPlates", true) ~= false end
 local function PlatesOff() return not PlatesOn() end
 local REQ_PLATES = "Show on Nameplates"
@@ -169,7 +174,7 @@ local BAR_ELEMENTS = {
 local ICON_STYLE_VALUES = { spec = "Spec Icon", kick = "Kick Icon", class = "Class Icon" }
 local ICON_STYLE_ORDER = { "kick", "spec", "class" }
 
--- Focus Announce: None, then the raid markers 1-8 with their icons and the
+-- Focus Marker: None, then the raid markers 1-8 with their icons and the
 -- game's own names (the Forever Essentials macro editor's marker list).
 local MARKER_ICONS = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local MARKER_ORDER = { "0", "1", "2", "3", "4", "5", "6", "7", "8" }
@@ -177,7 +182,6 @@ local markerValues
 local function MarkerValues()
     if not markerValues then
         markerValues = { _noLoc = true, ["0"] = EllesmereUI.L("None") }
-        for i = 1, 8 do markerValues[tostring(i)] = _G["RAID_TARGET_" .. i] end
         markerValues._menuOpts = {
             icon = function(key)
                 local i = tonumber(key)
@@ -186,6 +190,14 @@ local function MarkerValues()
                 return MARKER_ICONS, l, l + 0.25, t, t + 0.25
             end,
         }
+    end
+    -- A party member's name beside each marker their Kick Tracker told, read
+    -- again at every build.
+    local users = ns.FM_MarkerUsers and ns.FM_MarkerUsers() or {}
+    for i = 1, 8 do
+        local name = _G["RAID_TARGET_" .. i] or tostring(i)
+        if users[i] then name = name .. " |cff999999(" .. users[i] .. ")|r" end
+        markerValues[tostring(i)] = name
     end
     return markerValues
 end
@@ -276,17 +288,24 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
         EllesmereUI.RegisterWidgetRefresh(whereRefresh)
     end
 
+    _, h = W:SectionHeader(parent, "FOCUS MARKER", y); y = y - h
+
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Focus Announce",
-          tooltip="Tells the party your focus marker at ready checks.",
-          disabled=Off, disabledTooltip=REQ,
+        { type="dropdown", text="Focus Marker",
+          tooltip="Your focus kick's raid marker. The Set Focus macro places it and Focus Announce tells it to the party. A name beside a marker is a party member whose Kick Tracker uses it.",
           values=MarkerValues(), order=MARKER_ORDER,
           getValue=function() return tostring(Get("focusMarker", 0)) end,
-          setValue=function(v) Set("focusMarker", tonumber(v) or 0) end },
-        { type="labeledButton", text="Edit Announce Text", buttonText="Edit", width=90,
-          tooltip="Change the line Focus Announce sends: your own words, with {marker} where your raid marker goes.",
-          disabled=Off, disabledTooltip=REQ,
-          onClick=EditAnnounceText });  y = y - h
+          setValue=function(v)
+              Set("focusMarker", tonumber(v) or 0)
+              -- Auto Mark Focus and Pick Free Marker follow the marker.
+              EllesmereUI:RefreshPage()
+          end },
+        { type="labeledButton", text="Pick Free Marker", buttonText="Pick", width=90,
+          tooltip="Switch to the first raid marker no party member uses, from Skull down.",
+          disabled=NoClash, disabledTooltip="No party member uses your Focus Marker.", rawTooltip=true,
+          onClick=function()
+              if ns.FM_SwitchToFree then ns.FM_SwitchToFree() end
+          end });  y = y - h
     -- The red warning on the dropdown while the nameplate icons are on with
     -- no marker set (the standard empty-selection warning), with a dismiss
     -- button beside it that waves it off for good, account-wide.
@@ -304,6 +323,44 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
                     EllesmereUIDB.dismissedKickMarkerWarning = true
                 end })
         end
+    end
+
+    _, h = W:DualRow(parent, y,
+        { type="toggle", text="Focus Announce",
+          tooltip="Tells the party your Focus Marker in chat at ready checks in Mythic dungeons.",
+          disabled=Off, disabledTooltip=REQ,
+          getValue=function() return Get("focusAnnounce", true) ~= false end,
+          setValue=function(v)
+              Set("focusAnnounce", v and true or false)
+              EllesmereUI:RefreshPage()
+          end },
+        { type="labeledButton", text="Edit Announce Text", buttonText="Edit", width=90,
+          tooltip="Change the line Focus Announce sends: your own words, with {marker} where your raid marker goes.",
+          disabled=AnnounceOff, disabledTooltip="Focus Announce",
+          onClick=EditAnnounceText });  y = y - h
+
+    -- The Set Focus macro (EUI_MythicTimer_FocusMacro.lua), written from the
+    -- Focus Marker. Not on WoW Forever, as the Macro Factory is not.
+    if not EllesmereUI.IS_FOREVER then
+        _, h = W:TripleRow(parent, y,
+            { type="toggle", text="Set Focus Macro",
+              tooltip="The EUI_Focus macro: focuses your mouseover, else your target. Drag it from the game's macro window (General Macros) to your bars. It updates by itself when your Focus Marker changes.",
+              getValue=function() return ns.FM_Exists and ns.FM_Exists() or false end,
+              setValue=function(v)
+                  if ns.FM_Create then
+                      if v then ns.FM_Create() else ns.FM_Delete() end
+                  end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Auto Mark Focus",
+              tooltip="The macro puts your Focus Marker on the mob you focus, unless a group member already marked it.",
+              disabled=NoMarker, disabledTooltip="Pick a Focus Marker first.", rawTooltip=true,
+              getValue=function() return Get("focusMacroMark", false) == true end,
+              setValue=function(v) Set("focusMacroMark", v and true or false) end },
+            { type="toggle", text="Ping Focus",
+              tooltip="The macro pings the mob you focus (On My Way).",
+              getValue=function() return Get("focusMacroPing", false) == true end,
+              setValue=function(v) Set("focusMacroPing", v and true or false) end });  y = y - h
     end
 
     -- The rest of the page exists only while the feature is on.

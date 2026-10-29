@@ -3108,6 +3108,8 @@ local function OnMarkerEvent(_, event, a1, a2, a3)
         local kind, mk, guid = text:match("^([FR])\t([0-8])\t(Player%-%d+%-%x+)$")
         if not kind or guid == PlainString(UnitGUID("player")) then return end
         Rails.Learn(guid, tonumber(mk))
+        -- The same marker as yours: the clash prompt (EUI_MythicTimer_FocusMacro.lua).
+        if ns.FM_OnMarkerHeard then ns.FM_OnMarkerHeard(guid, tonumber(mk)) end
         if kind == "R" then Reply() end
     elseif event == "GROUP_ROSTER_UPDATE" then
         Request()
@@ -3357,10 +3359,13 @@ end
 --  check inside a Mythic dungeon (difficulty 23 with no key running: never a
 --  Mythic+ run, never any other content), or the player's own line from the
 --  setting announceText (Edit Announce Text), where {marker} stands for the
---  raid marker and a line without it gets the marker at its end. READY_CHECK
---  is registered on a frame of ours only while a marker is set and the
---  tracker is on, so nothing runs elsewhere, and the content is checked at
---  the ready check itself.
+--  raid marker and a line without it gets the marker at its end. With the
+--  Focus Announce toggle off (focusAnnounce) the chat line stays home and the
+--  marker still goes out on the addon channel. The marker is the Focus
+--  Marker, which the Set Focus macro also reads
+--  (EUI_MythicTimer_FocusMacro.lua). READY_CHECK is registered on a frame of
+--  ours only while a marker is set and the tracker is on, so nothing runs
+--  elsewhere, and the content is checked at the ready check itself.
 --------------------------------------------------------------------------------
 local announceMarker = 0    -- the marker the last sync saw (0 = off)
 local announceFrame         -- built on the first enable
@@ -3399,7 +3404,10 @@ end
 local function Announce(marker)
     if not MythicDungeon() then return end
     if not IsInGroup() or IsInRaid() then return end
-    C_ChatInfo.SendChatMessage(AnnounceLine(marker), "PARTY")
+    local cfg = Cfg()
+    if not (cfg and cfg.focusAnnounce == false) then
+        C_ChatInfo.SendChatMessage(AnnounceLine(marker), "PARTY")
+    end
     -- The same marker on the addon channel for the marker defaults (Rails):
     -- before the key starts, as here, it still goes through.
     SendMarker("F")
@@ -3438,6 +3446,8 @@ function ns.KT_Refresh()
     -- The bars (EUI_MythicTimer_KickBars.lua) read the same settings table.
     if ns.KTB_Refresh then ns.KTB_Refresh() end
     local cfg = Cfg()
+    -- The Set Focus macro follows the marker, tracker on or off.
+    if ns.FM_Refresh then ns.FM_Refresh(cfg) end
     SyncAnnounce(cfg)
     Rails.SyncEvents(Enabled(cfg))
     if not Enabled(cfg) then
